@@ -52,14 +52,6 @@ use Data::Dumper;
 
 use DBI;
 
-###
-#Create Logfile
-###
-my $current_time=localtime();
-my $logfile="/m1/incoming/refworks.log";
-open (LOGFILE, ">$logfile");
-print LOGFILE "TIME: $current_time\n";
-
 ############################################################
 #  Part 1 configuration: extracting the data
 ############################################################
@@ -90,7 +82,6 @@ our $proxy = ''
    #my $i2 = index($ENV{'SCRIPT_URI'}, '/', $i + 3);
    #$server = substr($ENV{'SCRIPT_URI'}, 0, $i2 + 1 ) if $i2 > 0;
 
-   #print LOGFILE "SCRIPT_URI: ".$ENV{'SCRIPT_URI'}." | $server\n";
 #}
 
 # This is the URL that points to $report_dir refworks files, not necessarily related to the server from SCRIPT_URI
@@ -140,9 +131,6 @@ foreach my $v (ref $formdata{"id"} ? (@{$formdata{'id'}}) : $formdata{'id'} ) {
 }
 
 my @bibList = keys %bibList;
-
-
-print LOGFILE "ID LIST: @bibList\n";
 
 my $out_file = undef;
 eval {
@@ -252,17 +240,12 @@ sub DoQueryBulk {
     my $m_str = getMARCSQL();
     my $marcs = $dbh->prepare($m_str) || die $dbh->errstr();
 
-    print LOGFILE "ARGS: (".join(", ", @$bibList).")\n";
-    print LOGFILE "QUERY: $q_str\n\n";
-
     $sth->execute(@$bibList) 
 	|| die $dbh->errstr;
 
 
     my $tmpid = int(rand 100)+1;
     my $out_file = join('_',@$bibList)."_".$tmpid.".tmp";
-
-    print LOGFILE "FILE: $report_dir/$out_file\n";
 
     open (OUTFILE, ">$report_dir/$out_file")
 	|| die "Cannot create/open output file: $!";
@@ -275,7 +258,6 @@ sub DoQueryBulk {
         next if $old_id eq $id;
         $old_id = $id;
 
-        print LOGFILE "  RESULT id $id: ".join(", ",@entry)."\n";
         my @tags;
 
         if ($rt_code) {
@@ -287,7 +269,6 @@ sub DoQueryBulk {
         $authors->execute($id) || die $dbh->errstr();
 
         while (my (@authorEntry) = $authors->fetchrow_array() ) {
-          print LOGFILE "     AUTHOR $authorEntry[0]\n";
           if ($author) {
              push @tags, "A2 ".$authorEntry[0];
           } else {
@@ -336,7 +317,6 @@ sub DoQueryBulk {
 
         push @tags, "LK  ".${link_server}.$id if $id;
 
-        print LOGFILE "  TAGS: ".join(" | ", @tags)."\n";
         print OUTFILE join("\n", @tags)."\n\n";
     }
     close (OUTFILE);
