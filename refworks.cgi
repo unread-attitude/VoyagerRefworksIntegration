@@ -1,12 +1,12 @@
 #!/m1/shared/bin/perl
 
-use Data::Dumper;
+use MIME::Base64;
 
 ########################################################################
 #
 #  refworks.cgi : Import a bib item or items into RefWorks
 #
-#  Version: 1.0 for Unix
+#  Version: 1.1 for Unix
 #
 #  Created by Qing Zou, qzou@lakeheadu.ca
 #
@@ -41,6 +41,8 @@ use Data::Dumper;
 #  "Voyager" and "WebVoyage" are trademarks of Endeavor Information
 #  Systems, Inc. and/or successor entities
 #
+#  "RefWorks" is a trademark of ProQuest
+#
 ########################################################################
 
 #use strict;
@@ -74,27 +76,11 @@ our $db_name = "traindb";
 
 # URL PREFIX for proxy
 
-our $proxy = ''
-
-
-#if (exists $ENV{'SCRIPT_URI'}){ 
-   #my $i = index($ENV{'SCRIPT_URI'}, ':');
-   #my $i2 = index($ENV{'SCRIPT_URI'}, '/', $i + 3);
-   #$server = substr($ENV{'SCRIPT_URI'}, 0, $i2 + 1 ) if $i2 > 0;
-
-#}
-
-# This is the URL that points to $report_dir refworks files, not necessarily related to the server from SCRIPT_URI
-our $server   = "http://my.host/";
+our $proxy = '';
 
 # This is the base url to use with the LK tag.
-our $link_server = "http://my.host/vwebv/holdingsInfo?bibId="
-
-#  Report directory where you will temporarily store the
-#  output file prior to transfering it to WebVoyage.
-#  (You probably won't need to change this variable.)
-
-our $report_dir = "/m1/voyager/$db_name/tomcat/vwebv/context/vwebv/htdocs/vwebv/refworks/";
+our $link_server;
+# $link_server  =  "http://my.host/vwebv/holdingsInfo?bibId=" ;
 
 #  Voyager (Oracle) read-only username and password
 
@@ -130,32 +116,60 @@ foreach my $v (ref $formdata{"id"} ? (@{$formdata{'id'}}) : $formdata{'id'} ) {
    $bibList{$v} = 1;
 }
 
-my @bibList = keys %bibList;
-
-my $out_file = undef;
-eval {
-  my $ok = 1;
-  foreach my $id (@bibList) {
-    next if $id =~ /^\d+$/g;
-    $ok=0;
-    print STDERR "INVALID ID $id\n";
+my $ok = 1;
+my @bibList;
+foreach my $id ( sort keys %bibList ) {
+  if ( $id =~ /^\d+$/g ) {
+     push @bibList, $id;
+  } elsif ($id = /\S/ ) {
+     print STDERR "INVALID ID '$id'\n";
+     $ok = 0;
   }
-  die "bad arguments" unless $ok == 1;
-  $out_file = DoQueryBulk($db_name, \@bibList);
+}
+
+if (!@bibList &&  exists($ENV{'PATH_INFO'})) {
+  my $p = $ENV{'PATH_INFO'};
+  $p =~ s/^\///;
+
+  my $p_decoded = decode_base64($p);
+  
+  foreach my $id (split /\,/, $p_decoded) {
+    if ( $id =~ /^\d+$/g ) {
+      push @bibList, $id;
+      } else {
+       print STDERR "INVALID ID '$id'\n";
+       $ok = 0;
+    }
+  }
+  print STDERR "REFWORKS IN: $p '$p_decoded'\n" unless $ok == 1;
+  print STDERR "REFWORKS INFO: ok=$ok IDS @bibList\n" unless $ok == 1;
+}
+    
+
+if ($ok != 1 ) {
+   print "Content-type: text/html\n\n";
+   print "Invalid Arguments to script";
+   exit 1;
+}
+    
+if (@bibList && ! exists($ENV{'PATH_INFO'})) {
+   my $new_uri = $ENV{'SCRIPT_URI'}."/".encode_base64(join(',', @bibList));
+   #print STDERR "REFWORKS TARGET URI: $new_uri BIBLIST: ".join(',', @bibList)."\n";
+  
+   print "Location: $proxy$refworks_server?g=$refwork_id&vendor=Refworks%20Tagged%20Format&url=".${new_uri}."\n\n";
+   exit 0;
+}
+
+print "Content-type: text/plain\n\n";
+
+eval {
+  DoQueryBulk($db_name, \@bibList);
 }; 
 if ($@) {
   print STDERR $@."\n";
   print "\n\nERROR: we were unable to process your request\n";
   exit 1;
 }
-
-if (! defined($out_file) || ! -f $report_dir."/".$out_file) {
-  print STDERR "Bad RefWorks file $out_file\n";
-  print "\n\nERROR: Failed to generate refworks file\n";
-  exit 1;
-}
-
-print "Location: $proxy$refworks_server?g=$refwork_id&vendor=Refworks%20Tagged%20Format&url=$server/$out_file\n\n";
 
 exit 0;
 
@@ -244,12 +258,6 @@ sub DoQueryBulk {
 	|| die $dbh->errstr;
 
 
-    my $tmpid = int(rand 100)+1;
-    my $out_file = join('_',@$bibList)."_".$tmpid.".tmp";
-
-    open (OUTFILE, ">$report_dir/$out_file")
-	|| die "Cannot create/open output file: $!";
-
     my $old_id = "";
     while( my (@entry) = $sth->fetchrow_array() ) {
         my ($author, $title, $edition, $publisher, $place, $year, $rt_code,  $sn, $sn1, $lang, $id, $display_call_no, $location_id) = (@entry);
@@ -315,16 +323,14 @@ sub DoQueryBulk {
            push @tags, "K1 ".$subjectEntry[0] if $subjectEntry[0];
         }
 
-        push @tags, "LK  ".${link_server}.$id if $id;
+        push @tags, "LK  ".${link_server}.$id if ($id && defined ${link_server});
 
-        print OUTFILE join("\n", @tags)."\n\n";
+        print join("\n", @tags)."\n\n";
     }
-    close (OUTFILE);
      
     $sth->finish;
 
     $dbh->disconnect;
-    return $out_file;
 }
 
 sub GetMARCData {
