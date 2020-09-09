@@ -109,7 +109,7 @@ ReadParse();
 # Handle both the canonical and broken PCOM methods of deliniating multiple IDs
 my %bibList;
 foreach my $key (keys %formdata ) {
-   next unless $key =~ /^bibId\d*$/;
+   next unless $key =~ /^bibid\d*$/i;
    $bibList{$formdata{$key}} = 1;
 }
 foreach my $v (ref $formdata{"id"} ? (@{$formdata{'id'}}) : $formdata{'id'} ) {
